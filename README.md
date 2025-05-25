@@ -1,5 +1,20 @@
 # Spotify Nostalgic Recommender
 
+> **⚠️ PROJECT DISCONTINUED - SPOTIFY API DEPRECATIONS**
+> 
+> **This project has been discontinued due to critical Spotify Web API endpoints being deprecated:**
+> - **Audio Features API** (`/v1/audio-features`) - Returns 403 Forbidden
+> - **Recommendations API** (`/v1/recommendations`) - Deprecated 
+> - **Related Artists API** (`/v1/artists/{id}/related-artists`) - Deprecated
+> 
+> These APIs were essential for the core functionality of music analysis and recommendation generation. Without access to audio features (tempo, energy, valence, etc.) and the recommendations engine, the project cannot deliver its intended value.
+> 
+> **Repository Status**: Archived for historical reference and learning purposes.
+> 
+> **Last Working Version**: The authentication flow, library fetching, and basic UI components remain functional, but recommendation generation is severely limited.
+
+---
+
 A full-stack web application that helps users rediscover forgotten songs and find new favorites based on their Spotify Liked Songs library. The app analyzes your music taste using machine learning and shows songs from your formative years (ages 12-18) while visualizing how your music taste evolved over time.
 
 ## Features

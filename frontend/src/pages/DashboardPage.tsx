@@ -118,7 +118,7 @@ const DashboardPage: React.FC = () => {
           
           <StatCard
             title="Today's Recommendations"
-            value={`${status?.recommendations_today || 0}/4`}
+            value={`${status?.recommendations_today || 0}/100`}
             subtitle="Daily limit"
             icon={<Clock className="h-6 w-6" />}
           />
@@ -159,7 +159,7 @@ const DashboardPage: React.FC = () => {
             }
             buttonText="Generate Recommendations"
             onAction={handleGenerateRecommendations}
-            disabled={!status?.can_generate_recommendations || (status?.recommendations_today >= 4)}
+            disabled={!status?.can_generate_recommendations || (status?.recommendations_today >= 100)}
             icon={<TrendingUp className="h-6 w-6" />}
           />
         </div>

@@ -1,6 +1,6 @@
 """
 Recommendation engine for generating music recommendations
-Using metadata-based approach due to audio features API deprecation
+Using only non-deprecated Spotify APIs
 """
 
 from typing import List, Dict, Any, Optional
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class RecommendationEngine:
-    """Generate recommendations using metadata-based approach"""
+    """Generate recommendations using only available Spotify APIs"""
 
     def __init__(self):
         self.spotify_client = SpotifyClient()
@@ -24,7 +24,7 @@ class RecommendationEngine:
     def generate_cluster_recommendations(
         self, access_token: str, user_id: int, limit: int, db: Session
     ) -> List[Dict[str, Any]]:
-        """Generate recommendations based on artist and genre similarity"""
+        """Generate recommendations based on user's music taste using search API"""
         try:
             # Get user's tracks
             user_tracks = db.query(Track).filter(Track.user_id == user_id).all()
@@ -33,49 +33,68 @@ class RecommendationEngine:
                 logger.warning(f"No tracks found for user {user_id}")
                 return []
 
-            # Extract unique artists from user's library
-            user_artists = list(set([track.artist_name for track in user_tracks]))
-            logger.info(f"User has {len(user_artists)} unique artists")
+            # Extract unique artists and analyze patterns
+            artist_counts = {}
+            for track in user_tracks:
+                artist = track.artist_name
+                artist_counts[artist] = artist_counts.get(artist, 0) + 1
 
-            # Get recommendations based on top artists
+            # Get top artists
+            top_artists = sorted(
+                artist_counts.items(), key=lambda x: x[1], reverse=True
+            )[:5]
+            logger.info(f"User's top artists: {[a[0] for a in top_artists]}")
+
+            # Generate recommendations by searching for similar music
             recommendations = []
-            artists_to_use = min(5, len(user_artists))  # Use up to 5 artists
-            selected_artists = random.sample(user_artists, artists_to_use)
+            user_track_ids = [track.spotify_id for track in user_tracks]
 
-            for artist in selected_artists:
-                # Search for the artist to get their ID
-                artist_results = self.spotify_client.search_tracks(
-                    access_token, f"artist:{artist}", limit=1
+            for artist_name, _ in top_artists:
+                # Search for tracks by the same artist that user doesn't have
+                search_query = f'artist:"{artist_name}"'
+                search_results = self.spotify_client.search_tracks(
+                    access_token, search_query, limit=50
                 )
 
-                if artist_results and artist_results[0].get("artists"):
-                    artist_id = artist_results[0]["artists"][0]["id"]
+                for track in search_results:
+                    if track["id"] not in user_track_ids:
+                        recommendations.append(track)
 
-                    # Get related artists
-                    related = self._get_related_artists(access_token, artist_id)
+            # Also search for tracks from similar time periods
+            if user_tracks:
+                # Get a sample of release years
+                sample_tracks = random.sample(user_tracks, min(5, len(user_tracks)))
+                for track in sample_tracks:
+                    if track.release_date:
+                        year = track.release_date[:4]
+                        genre_searches = [
+                            f"year:{year}",
+                            f"year:{int(year)-1}-{int(year)+1}",
+                        ]
 
-                    for related_artist in related[
-                        :2
-                    ]:  # Get 2 related artists per seed artist
-                        # Get top tracks for related artist
-                        tracks = self._get_artist_top_tracks(
-                            access_token, related_artist["id"]
-                        )
-                        recommendations.extend(
-                            tracks[:2]
-                        )  # Add 2 tracks per related artist
+                        for search in genre_searches:
+                            results = self.spotify_client.search_tracks(
+                                access_token, search, limit=10
+                            )
+                            for result in results:
+                                if (
+                                    result["id"] not in user_track_ids
+                                    and result.get("popularity", 0) > 40
+                                ):
+                                    recommendations.append(result)
 
-            # Remove duplicates and already liked songs
-            user_track_ids = [track.spotify_id for track in user_tracks]
-            unique_recommendations = []
+            # Remove duplicates
             seen_ids = set()
-
+            unique_recommendations = []
             for rec in recommendations:
-                if rec["id"] not in user_track_ids and rec["id"] not in seen_ids:
+                if rec["id"] not in seen_ids:
                     seen_ids.add(rec["id"])
                     unique_recommendations.append(rec)
 
-            # Limit to requested number
+            # Sort by popularity and limit
+            unique_recommendations.sort(
+                key=lambda x: x.get("popularity", 0), reverse=True
+            )
             final_recommendations = unique_recommendations[:limit]
 
             # Store recommendations in database
@@ -108,9 +127,9 @@ class RecommendationEngine:
 
             logger.info(f"User's formative years: {formative_start}-{formative_end}")
 
-            # Get user's favorite genres from their tracks
+            # Get user's tracks to exclude
             user_tracks = db.query(Track).filter(Track.user_id == user_id).all()
-            user_artists = list(set([track.artist_name for track in user_tracks]))
+            user_track_ids = [track.spotify_id for track in user_tracks]
 
             # Search for popular songs from formative years
             recommendations = []
@@ -119,36 +138,36 @@ class RecommendationEngine:
                 # Search for popular songs from that year
                 search_queries = [
                     f"year:{year}",
-                    f"year:{year} genre:pop",
-                    f"year:{year} genre:rock",
-                    f"year:{year} genre:hip-hop",
+                    f"year:{year} tag:hipster",  # Less mainstream tracks
                 ]
 
                 for query in search_queries:
                     results = self.spotify_client.search_tracks(
-                        access_token, query, limit=5
+                        access_token, query, limit=20
                     )
 
                     for track in results:
                         # Filter by popularity to get actual hits from that era
-                        if track.get("popularity", 0) > 50:
+                        if (
+                            track.get("popularity", 0) > 30
+                            and track["id"] not in user_track_ids
+                        ):
                             track["nostalgia_year"] = year
                             track["user_age"] = year - birth_year
                             recommendations.append(track)
 
-            # Remove duplicates and already liked songs
-            user_track_ids = [track.spotify_id for track in user_tracks]
-            unique_recommendations = []
+            # Remove duplicates
             seen_ids = set()
-
+            unique_recommendations = []
             for rec in recommendations:
-                if rec["id"] not in user_track_ids and rec["id"] not in seen_ids:
+                if rec["id"] not in seen_ids:
                     seen_ids.add(rec["id"])
                     unique_recommendations.append(rec)
 
-            # Sort by popularity and limit
+            # Sort by a mix of year and popularity
             unique_recommendations.sort(
-                key=lambda x: x.get("popularity", 0), reverse=True
+                key=lambda x: (x.get("nostalgia_year", 0), x.get("popularity", 0)),
+                reverse=True,
             )
             final_recommendations = unique_recommendations[:limit]
 
@@ -194,55 +213,30 @@ class RecommendationEngine:
                 selected_tracks = random.sample(old_tracks, sample_size)
 
                 for track in selected_tracks:
-                    # Get full track info from Spotify
-                    track_info = self._get_track_info(access_token, track.spotify_id)
-                    if track_info:
-                        track_info["added_at"] = track.added_at.isoformat()
-                        track_info["days_ago"] = (
-                            datetime.utcnow() - track.added_at
-                        ).days
-                        forgotten_favorites.append(track_info)
+                    # Create track info from our database
+                    track_info = {
+                        "id": track.spotify_id,
+                        "name": track.name,
+                        "artists": [{"name": track.artist_name}],
+                        "album": {
+                            "name": track.album_name,
+                            "images": (
+                                [{"url": track.image_url}] if track.image_url else []
+                            ),
+                        },
+                        "external_urls": {"spotify": track.external_url},
+                        "preview_url": track.preview_url,
+                        "popularity": track.popularity,
+                        "added_at": track.added_at.isoformat(),
+                        "days_ago": (datetime.utcnow() - track.added_at).days,
+                    }
+                    forgotten_favorites.append(track_info)
 
             return forgotten_favorites
 
         except Exception as e:
             logger.error(f"Failed to get forgotten favorites: {e}")
             return []
-
-    def _get_related_artists(
-        self, access_token: str, artist_id: str
-    ) -> List[Dict[str, Any]]:
-        """Get related artists from Spotify"""
-        try:
-            sp = self.spotify_client.get_spotify_client(access_token)
-            result = sp.artist_related_artists(artist_id)
-            return result.get("artists", [])
-        except Exception as e:
-            logger.error(f"Failed to get related artists: {e}")
-            return []
-
-    def _get_artist_top_tracks(
-        self, access_token: str, artist_id: str
-    ) -> List[Dict[str, Any]]:
-        """Get artist's top tracks"""
-        try:
-            sp = self.spotify_client.get_spotify_client(access_token)
-            result = sp.artist_top_tracks(artist_id, country="US")
-            return result.get("tracks", [])
-        except Exception as e:
-            logger.error(f"Failed to get artist top tracks: {e}")
-            return []
-
-    def _get_track_info(
-        self, access_token: str, track_id: str
-    ) -> Optional[Dict[str, Any]]:
-        """Get track information from Spotify"""
-        try:
-            sp = self.spotify_client.get_spotify_client(access_token)
-            return sp.track(track_id)
-        except Exception as e:
-            logger.error(f"Failed to get track info: {e}")
-            return None
 
     def _store_recommendation(
         self, user_id: int, track: Dict[str, Any], rec_type: str, db: Session
@@ -264,13 +258,15 @@ class RecommendationEngine:
                     user_id=user_id,
                     spotify_track_id=track["id"],
                     track_name=track["name"],
-                    artist_name=", ".join([a["name"] for a in track["artists"]]),
-                    album_name=track["album"]["name"],
+                    artist_name=", ".join(
+                        [a["name"] for a in track.get("artists", [])]
+                    ),
+                    album_name=track.get("album", {}).get("name", "Unknown Album"),
                     preview_url=track.get("preview_url"),
-                    external_url=track["external_urls"].get("spotify"),
+                    external_url=track.get("external_urls", {}).get("spotify"),
                     image_url=(
-                        track["album"]["images"][0]["url"]
-                        if track["album"]["images"]
+                        track.get("album", {}).get("images", [{}])[0].get("url")
+                        if track.get("album", {}).get("images")
                         else None
                     ),
                     recommendation_type=rec_type,

@@ -39,19 +39,22 @@ class DataAnalyzer:
             top_artists = [artist for artist, _ in artist_counts.most_common(5)]
 
             if top_artists:
+                centroid_data = {
+                    "name": "Your Top Artists",
+                    "description": f"Songs from your most played artists: {', '.join(top_artists[:3])}...",
+                    "artists": top_artists,
+                    "avg_energy": 0.7,
+                    "avg_valence": 0.6,
+                    "avg_danceability": 0.65,
+                    "avg_acousticness": 0.3,
+                    "avg_tempo": 120.0,
+                    "dominant_genres": "various",
+                }
                 cluster = UserCluster(
                     user_id=user_id,
                     cluster_id=0,
-                    name="Your Top Artists",
-                    description=f"Songs from your most played artists: {', '.join(top_artists[:3])}...",
+                    centroid_data=centroid_data,
                     track_count=sum(1 for t in tracks if t.artist_name in top_artists),
-                    # Using popularity as a proxy for cluster characteristics
-                    avg_energy=0.7,
-                    avg_valence=0.6,
-                    avg_danceability=0.65,
-                    avg_acousticness=0.3,
-                    avg_tempo=120.0,
-                    dominant_genres="various",
                 )
                 clusters.append(cluster)
 
@@ -62,18 +65,21 @@ class DataAnalyzer:
             recent_tracks = [t for t in tracks if t.added_at >= three_months_ago]
 
             if recent_tracks:
+                centroid_data = {
+                    "name": "Recent Discoveries",
+                    "description": "Songs you've added in the last 3 months",
+                    "avg_energy": 0.75,
+                    "avg_valence": 0.7,
+                    "avg_danceability": 0.7,
+                    "avg_acousticness": 0.25,
+                    "avg_tempo": 125.0,
+                    "dominant_genres": "contemporary",
+                }
                 cluster = UserCluster(
                     user_id=user_id,
                     cluster_id=1,
-                    name="Recent Discoveries",
-                    description="Songs you've added in the last 3 months",
+                    centroid_data=centroid_data,
                     track_count=len(recent_tracks),
-                    avg_energy=0.75,
-                    avg_valence=0.7,
-                    avg_danceability=0.7,
-                    avg_acousticness=0.25,
-                    avg_tempo=125.0,
-                    dominant_genres="contemporary",
                 )
                 clusters.append(cluster)
 
@@ -82,18 +88,21 @@ class DataAnalyzer:
             old_tracks = [t for t in tracks if t.added_at < one_year_ago]
 
             if old_tracks:
+                centroid_data = {
+                    "name": "Nostalgic Favorites",
+                    "description": "Songs from over a year ago that you still love",
+                    "avg_energy": 0.6,
+                    "avg_valence": 0.65,
+                    "avg_danceability": 0.6,
+                    "avg_acousticness": 0.35,
+                    "avg_tempo": 118.0,
+                    "dominant_genres": "classic",
+                }
                 cluster = UserCluster(
                     user_id=user_id,
                     cluster_id=2,
-                    name="Nostalgic Favorites",
-                    description="Songs from over a year ago that you still love",
+                    centroid_data=centroid_data,
                     track_count=len(old_tracks),
-                    avg_energy=0.6,
-                    avg_valence=0.65,
-                    avg_danceability=0.6,
-                    avg_acousticness=0.35,
-                    avg_tempo=118.0,
-                    dominant_genres="classic",
                 )
                 clusters.append(cluster)
 
@@ -117,18 +126,21 @@ class DataAnalyzer:
             ]
 
             if energy_tracks:
+                centroid_data = {
+                    "name": "High Energy",
+                    "description": "Your dance and party tracks",
+                    "avg_energy": 0.85,
+                    "avg_valence": 0.75,
+                    "avg_danceability": 0.8,
+                    "avg_acousticness": 0.1,
+                    "avg_tempo": 128.0,
+                    "dominant_genres": "dance/electronic",
+                }
                 cluster = UserCluster(
                     user_id=user_id,
                     cluster_id=3,
-                    name="High Energy",
-                    description="Your dance and party tracks",
+                    centroid_data=centroid_data,
                     track_count=len(energy_tracks),
-                    avg_energy=0.85,
-                    avg_valence=0.75,
-                    avg_danceability=0.8,
-                    avg_acousticness=0.1,
-                    avg_tempo=128.0,
-                    dominant_genres="dance/electronic",
                 )
                 clusters.append(cluster)
 
@@ -152,18 +164,21 @@ class DataAnalyzer:
             ]
 
             if chill_tracks:
+                centroid_data = {
+                    "name": "Chill Vibes",
+                    "description": "Your relaxing and mellow tracks",
+                    "avg_energy": 0.4,
+                    "avg_valence": 0.5,
+                    "avg_danceability": 0.45,
+                    "avg_acousticness": 0.7,
+                    "avg_tempo": 100.0,
+                    "dominant_genres": "acoustic/ambient",
+                }
                 cluster = UserCluster(
                     user_id=user_id,
                     cluster_id=4,
-                    name="Chill Vibes",
-                    description="Your relaxing and mellow tracks",
+                    centroid_data=centroid_data,
                     track_count=len(chill_tracks),
-                    avg_energy=0.4,
-                    avg_valence=0.5,
-                    avg_danceability=0.45,
-                    avg_acousticness=0.7,
-                    avg_tempo=100.0,
-                    dominant_genres="acoustic/ambient",
                 )
                 clusters.append(cluster)
 
