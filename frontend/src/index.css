@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-spotify-black text-spotify-white font-spotify;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-spotify-green text-spotify-black px-6 py-3 rounded-full font-semibold hover:bg-green-400 transition-colors;
+  }
+  
+  .btn-secondary {
+    @apply bg-transparent border border-spotify-white text-spotify-white px-6 py-3 rounded-full font-semibold hover:bg-spotify-white hover:text-spotify-black transition-colors;
+  }
+  
+  .card {
+    @apply bg-gray-900 rounded-lg p-6 shadow-lg;
+  }
+  
+  .track-card {
+    @apply bg-gray-800 rounded-lg p-4 hover:bg-gray-700 transition-colors cursor-pointer;
+  }
+}
