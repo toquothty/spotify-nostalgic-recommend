@@ -290,6 +290,28 @@ async def submit_feedback(
     return {"message": "Feedback submitted successfully"}
 
 
+@router.get("/library-info")
+async def get_library_info(session_id: str, db: Session = Depends(get_db)):
+    """Get user's Spotify library information"""
+    session = get_current_session(session_id, db)
+
+    try:
+        # Get total liked songs count from Spotify
+        total_liked_songs = spotify_client.get_user_saved_tracks_count(
+            session.access_token
+        )
+
+        return {
+            "total_liked_songs": total_liked_songs,
+            "message": f"You have {total_liked_songs} liked songs in your Spotify library",
+        }
+    except Exception as e:
+        logger.error(f"Failed to get library info: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get library info: {str(e)}"
+        )
+
+
 @router.get("/status")
 async def get_analysis_status(session_id: str, db: Session = Depends(get_db)):
     """Get the status of library analysis and recommendations"""
@@ -309,6 +331,15 @@ async def get_analysis_status(session_id: str, db: Session = Depends(get_db)):
     # Check rate limiting
     can_recommend = can_generate_recommendations(session, db)
 
+    # Get total liked songs count from Spotify
+    total_liked_songs = 0
+    try:
+        total_liked_songs = spotify_client.get_user_saved_tracks_count(
+            session.access_token
+        )
+    except Exception as e:
+        logger.warning(f"Failed to get total liked songs count: {e}")
+
     return {
         "library_analyzed": track_count > 0,
         "track_count": track_count,
@@ -322,6 +353,7 @@ async def get_analysis_status(session_id: str, db: Session = Depends(get_db)):
             else None
         ),
         "recommendations_today": session.recommendation_count_today,
+        "total_liked_songs": total_liked_songs,
     }
 
 

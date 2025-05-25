@@ -2,7 +2,7 @@
 Authentication API endpoints for Spotify OAuth
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Form
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from typing import Dict, Any
@@ -104,8 +104,8 @@ async def auth_callback(
 
 @router.post("/onboarding")
 async def complete_onboarding(
-    session_id: str,
-    date_of_birth: str,  # Format: YYYY-MM-DD
+    session_id: str = Form(...),
+    date_of_birth: str = Form(...),  # Format: YYYY-MM-DD
     db: Session = Depends(get_db),
 ):
     """Complete user onboarding with date of birth"""
@@ -185,7 +185,7 @@ async def refresh_token(session_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/logout")
-async def logout(session_id: str, db: Session = Depends(get_db)):
+async def logout(session_id: str = Form(...), db: Session = Depends(get_db)):
     """Logout user and invalidate session"""
     session = db.query(UserSession).filter(UserSession.session_id == session_id).first()
     if session:

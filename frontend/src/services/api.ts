@@ -30,16 +30,26 @@ export const authApi = {
   },
 
   completeOnboarding: async (sessionId: string, dateOfBirth: string): Promise<{ message: string }> => {
-    const response = await api.post('/api/auth/onboarding', {
-      session_id: sessionId,
-      date_of_birth: dateOfBirth,
+    const params = new URLSearchParams()
+    params.append('session_id', sessionId)
+    params.append('date_of_birth', dateOfBirth)
+    
+    const response = await api.post('/api/auth/onboarding', params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
     })
     return response.data
   },
 
   logout: async (sessionId: string): Promise<{ message: string }> => {
-    const response = await api.post('/api/auth/logout', {
-      session_id: sessionId,
+    const params = new URLSearchParams()
+    params.append('session_id', sessionId)
+    
+    const response = await api.post('/api/auth/logout', params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
     })
     return response.data
   },
@@ -113,6 +123,16 @@ export const recommendationsApi = {
     return response.data
   },
 
+  getLibraryInfo: async (sessionId: string): Promise<{
+    total_liked_songs: number
+    message: string
+  }> => {
+    const response = await api.get('/api/recommendations/library-info', {
+      params: { session_id: sessionId },
+    })
+    return response.data
+  },
+
   getStatus: async (sessionId: string): Promise<{
     library_analyzed: boolean
     track_count: number
@@ -122,6 +142,7 @@ export const recommendationsApi = {
     needs_onboarding: boolean
     last_recommendation: string | null
     recommendations_today: number
+    total_liked_songs: number
   }> => {
     const response = await api.get('/api/recommendations/status', {
       params: { session_id: sessionId },
