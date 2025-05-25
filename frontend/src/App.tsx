@@ -3,6 +3,7 @@ import HomePage from './pages/HomePage'
 import DashboardPage from './pages/DashboardPage'
 import OnboardingPage from './pages/OnboardingPage'
 import AnalyticsPage from './pages/AnalyticsPage'
+import RecommendationsPage from './pages/RecommendationsPage'
 import CallbackPage from './pages/CallbackPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -41,6 +42,7 @@ function AppRoutes() {
           />
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/recommendations" element={<RecommendationsPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </>
       )}

@@ -9,7 +9,7 @@ import os
 from dotenv import load_dotenv
 
 from app.database import engine, Base
-from app.api import auth, recommendations, analytics
+from app.api import auth, recommendations, analytics, progress
 from app.services.spotify_client import SpotifyClient
 
 # Load environment variables
@@ -24,7 +24,7 @@ app = FastAPI(
     description="Discover forgotten favorites and nostalgic hits based on your music taste",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
 
 # Configure CORS
@@ -38,8 +38,12 @@ app.add_middleware(
 
 # Include API routers
 app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
-app.include_router(recommendations.router, prefix="/api/recommendations", tags=["recommendations"])
+app.include_router(
+    recommendations.router, prefix="/api/recommendations", tags=["recommendations"]
+)
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
+app.include_router(progress.router, prefix="/api/progress", tags=["progress"])
+
 
 @app.get("/")
 async def root():
@@ -48,14 +52,17 @@ async def root():
         "message": "Spotify Nostalgic Recommender API",
         "version": "1.0.0",
         "docs": "/docs",
-        "status": "running"
+        "status": "running",
     }
+
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "spotify-nostalgic-recommender"}
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)

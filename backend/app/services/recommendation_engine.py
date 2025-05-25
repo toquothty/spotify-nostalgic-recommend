@@ -1,64 +1,91 @@
 """
 Recommendation engine for generating music recommendations
+Using metadata-based approach due to audio features API deprecation
 """
 
-import random
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta
+import random
 import logging
 
-from app.models import User, Track, UserCluster, Recommendation, BillboardChart
+from app.models import User, Track, UserCluster, Recommendation
 from app.services.spotify_client import SpotifyClient
-from app.services.data_analyzer import DataAnalyzer
-from app.services.billboard_scraper import BillboardScraper
 
 logger = logging.getLogger(__name__)
 
 
 class RecommendationEngine:
-    """Service for generating music recommendations"""
+    """Generate recommendations using metadata-based approach"""
 
     def __init__(self):
         self.spotify_client = SpotifyClient()
-        self.data_analyzer = DataAnalyzer()
-        self.billboard_scraper = BillboardScraper()
 
     def generate_cluster_recommendations(
         self, access_token: str, user_id: int, limit: int, db: Session
     ) -> List[Dict[str, Any]]:
-        """Generate recommendations based on user's music taste clusters"""
+        """Generate recommendations based on artist and genre similarity"""
         try:
-            # Get user's clusters
-            clusters = (
-                db.query(UserCluster).filter(UserCluster.user_id == user_id).all()
-            )
+            # Get user's tracks
+            user_tracks = db.query(Track).filter(Track.user_id == user_id).all()
 
-            if not clusters:
-                logger.warning(f"No clusters found for user {user_id}")
+            if not user_tracks:
+                logger.warning(f"No tracks found for user {user_id}")
                 return []
 
-            # Get user's existing tracks to exclude from recommendations
-            existing_tracks = db.query(Track).filter(Track.user_id == user_id).all()
-            existing_track_ids = {track.spotify_id for track in existing_tracks}
+            # Extract unique artists from user's library
+            user_artists = list(set([track.artist_name for track in user_tracks]))
+            logger.info(f"User has {len(user_artists)} unique artists")
 
+            # Get recommendations based on top artists
             recommendations = []
-            tracks_per_cluster = max(1, limit // len(clusters))
+            artists_to_use = min(5, len(user_artists))  # Use up to 5 artists
+            selected_artists = random.sample(user_artists, artists_to_use)
 
-            for cluster in clusters:
-                cluster_recs = self._generate_recommendations_for_cluster(
-                    access_token, cluster, tracks_per_cluster, existing_track_ids, db
+            for artist in selected_artists:
+                # Search for the artist to get their ID
+                artist_results = self.spotify_client.search_tracks(
+                    access_token, f"artist:{artist}", limit=1
                 )
-                recommendations.extend(cluster_recs)
 
-            # Shuffle and limit results
-            random.shuffle(recommendations)
-            recommendations = recommendations[:limit]
+                if artist_results and artist_results[0].get("artists"):
+                    artist_id = artist_results[0]["artists"][0]["id"]
+
+                    # Get related artists
+                    related = self._get_related_artists(access_token, artist_id)
+
+                    for related_artist in related[
+                        :2
+                    ]:  # Get 2 related artists per seed artist
+                        # Get top tracks for related artist
+                        tracks = self._get_artist_top_tracks(
+                            access_token, related_artist["id"]
+                        )
+                        recommendations.extend(
+                            tracks[:2]
+                        )  # Add 2 tracks per related artist
+
+            # Remove duplicates and already liked songs
+            user_track_ids = [track.spotify_id for track in user_tracks]
+            unique_recommendations = []
+            seen_ids = set()
+
+            for rec in recommendations:
+                if rec["id"] not in user_track_ids and rec["id"] not in seen_ids:
+                    seen_ids.add(rec["id"])
+                    unique_recommendations.append(rec)
+
+            # Limit to requested number
+            final_recommendations = unique_recommendations[:limit]
 
             # Store recommendations in database
-            self._store_recommendations(user_id, recommendations, "cluster", db)
+            for track in final_recommendations:
+                self._store_recommendation(user_id, track, "cluster", db)
 
-            return recommendations
+            logger.info(
+                f"Generated {len(final_recommendations)} recommendations for user {user_id}"
+            )
+            return final_recommendations
 
         except Exception as e:
             logger.error(f"Failed to generate cluster recommendations: {e}")
@@ -67,345 +94,191 @@ class RecommendationEngine:
     def generate_nostalgia_recommendations(
         self, access_token: str, user_id: int, limit: int, db: Session
     ) -> List[Dict[str, Any]]:
-        """Generate nostalgia recommendations based on formative years"""
+        """Generate nostalgic recommendations from user's formative years"""
         try:
-            # Get user info
             user = db.query(User).filter(User.id == user_id).first()
             if not user or not user.date_of_birth:
-                logger.error(f"User {user_id} missing date of birth")
+                logger.warning(f"User {user_id} has no date of birth set")
                 return []
 
-            # Calculate formative years
-            formative_years = self.data_analyzer.calculate_formative_years(
-                user.date_of_birth
+            # Calculate formative years (ages 12-18)
+            birth_year = user.date_of_birth.year
+            formative_start = birth_year + 12
+            formative_end = birth_year + 18
+
+            logger.info(f"User's formative years: {formative_start}-{formative_end}")
+
+            # Get user's favorite genres from their tracks
+            user_tracks = db.query(Track).filter(Track.user_id == user_id).all()
+            user_artists = list(set([track.artist_name for track in user_tracks]))
+
+            # Search for popular songs from formative years
+            recommendations = []
+
+            for year in range(formative_start, formative_end + 1):
+                # Search for popular songs from that year
+                search_queries = [
+                    f"year:{year}",
+                    f"year:{year} genre:pop",
+                    f"year:{year} genre:rock",
+                    f"year:{year} genre:hip-hop",
+                ]
+
+                for query in search_queries:
+                    results = self.spotify_client.search_tracks(
+                        access_token, query, limit=5
+                    )
+
+                    for track in results:
+                        # Filter by popularity to get actual hits from that era
+                        if track.get("popularity", 0) > 50:
+                            track["nostalgia_year"] = year
+                            track["user_age"] = year - birth_year
+                            recommendations.append(track)
+
+            # Remove duplicates and already liked songs
+            user_track_ids = [track.spotify_id for track in user_tracks]
+            unique_recommendations = []
+            seen_ids = set()
+
+            for rec in recommendations:
+                if rec["id"] not in user_track_ids and rec["id"] not in seen_ids:
+                    seen_ids.add(rec["id"])
+                    unique_recommendations.append(rec)
+
+            # Sort by popularity and limit
+            unique_recommendations.sort(
+                key=lambda x: x.get("popularity", 0), reverse=True
             )
-
-            # Get user's taste profile from clusters
-            clusters = (
-                db.query(UserCluster).filter(UserCluster.user_id == user_id).all()
-            )
-            if not clusters:
-                logger.warning(f"No clusters found for user {user_id}")
-                return []
-
-            # Get Billboard data for formative years
-            billboard_tracks = self._get_billboard_tracks_for_years(
-                formative_years["years"], db
-            )
-
-            if not billboard_tracks:
-                logger.warning(
-                    f"No Billboard data found for years {formative_years['years']}"
-                )
-                return []
-
-            # Get user's existing tracks to exclude
-            existing_tracks = db.query(Track).filter(Track.user_id == user_id).all()
-            existing_track_ids = {track.spotify_id for track in existing_tracks}
-
-            # Filter Billboard tracks by similarity to user's taste
-            similar_tracks = self._filter_by_taste_similarity(
-                billboard_tracks, clusters, existing_track_ids
-            )
-
-            # Get Spotify data for similar tracks
-            recommendations = self._enrich_with_spotify_data(
-                access_token, similar_tracks[: limit * 2]  # Get more to filter
-            )
-
-            # Filter out tracks already in user's library
-            recommendations = [
-                rec
-                for rec in recommendations
-                if rec.get("spotify_id") not in existing_track_ids
-            ]
-
-            # Limit results
-            recommendations = recommendations[:limit]
+            final_recommendations = unique_recommendations[:limit]
 
             # Store recommendations in database
-            self._store_recommendations(user_id, recommendations, "nostalgia", db)
+            for track in final_recommendations:
+                self._store_recommendation(user_id, track, "nostalgia", db)
 
-            return recommendations
+            logger.info(
+                f"Generated {len(final_recommendations)} nostalgia recommendations for user {user_id}"
+            )
+            return final_recommendations
 
         except Exception as e:
             logger.error(f"Failed to generate nostalgia recommendations: {e}")
             return []
 
-    def _generate_recommendations_for_cluster(
-        self,
-        access_token: str,
-        cluster: UserCluster,
-        limit: int,
-        existing_track_ids: set,
-        db: Session,
+    def get_forgotten_favorites(
+        self, access_token: str, user_id: int, limit: int, db: Session
     ) -> List[Dict[str, Any]]:
-        """Generate recommendations for a specific cluster"""
+        """Find old liked songs that user might have forgotten about"""
         try:
-            # Get sample tracks from this cluster for seeds
-            cluster_tracks = (
+            # Get user's tracks sorted by when they were added
+            user_tracks = (
                 db.query(Track)
-                .filter(
-                    Track.user_id == cluster.user_id,
-                    Track.cluster_id == cluster.cluster_id,
-                )
-                .limit(5)
+                .filter(Track.user_id == user_id)
+                .order_by(Track.added_at.asc())
                 .all()
             )
 
-            if not cluster_tracks:
+            if not user_tracks:
                 return []
 
-            # Use cluster centroid as target features
-            target_features = cluster.centroid_data
+            # Get tracks added more than 6 months ago
+            six_months_ago = datetime.utcnow() - timedelta(days=180)
+            old_tracks = [
+                track for track in user_tracks if track.added_at < six_months_ago
+            ]
 
-            # Get seed tracks and artists
-            seed_tracks = [track.spotify_id for track in cluster_tracks[:3]]
-            seed_artists = list(
-                set(
-                    [
-                        track.artist_name.split(",")[0].strip()
-                        for track in cluster_tracks
-                    ]
-                )
-            )[:3]
+            # Randomly select some old favorites
+            forgotten_favorites = []
+            if old_tracks:
+                sample_size = min(limit, len(old_tracks))
+                selected_tracks = random.sample(old_tracks, sample_size)
 
-            # Get recommendations from Spotify
-            spotify_recs = self.spotify_client.get_recommendations(
-                access_token=access_token,
-                seed_tracks=seed_tracks,
-                seed_artists=seed_artists,
-                target_features=target_features,
-                limit=limit * 2,  # Get more to filter
-            )
+                for track in selected_tracks:
+                    # Get full track info from Spotify
+                    track_info = self._get_track_info(access_token, track.spotify_id)
+                    if track_info:
+                        track_info["added_at"] = track.added_at.isoformat()
+                        track_info["days_ago"] = (
+                            datetime.utcnow() - track.added_at
+                        ).days
+                        forgotten_favorites.append(track_info)
 
-            # Filter and format recommendations
-            recommendations = []
-            for track in spotify_recs:
-                if track["id"] not in existing_track_ids:
-                    rec = {
-                        "spotify_id": track["id"],
-                        "name": track["name"],
-                        "artist_name": ", ".join(
-                            [artist["name"] for artist in track["artists"]]
-                        ),
-                        "album_name": track["album"]["name"],
-                        "preview_url": track["preview_url"],
-                        "external_url": track["external_urls"]["spotify"],
-                        "image_url": (
-                            track["album"]["images"][0]["url"]
-                            if track["album"]["images"]
-                            else None
-                        ),
-                        "source_cluster_id": cluster.cluster_id,
-                        "confidence_score": self._calculate_confidence_score(
-                            track, target_features
-                        ),
-                    }
-                    recommendations.append(rec)
-
-            return recommendations[:limit]
+            return forgotten_favorites
 
         except Exception as e:
-            logger.error(
-                f"Failed to generate recommendations for cluster {cluster.cluster_id}: {e}"
-            )
+            logger.error(f"Failed to get forgotten favorites: {e}")
             return []
 
-    def _get_billboard_tracks_for_years(
-        self, years: List[int], db: Session
-    ) -> List[BillboardChart]:
-        """Get Billboard tracks for specified years"""
-        # Check if we have data for these years
-        existing_data = (
-            db.query(BillboardChart)
-            .filter(
-                BillboardChart.chart_date.between(
-                    datetime(min(years), 1, 1), datetime(max(years), 12, 31)
-                )
-            )
-            .all()
-        )
-
-        if len(existing_data) < 100:  # If we don't have enough data, scrape it
-            logger.info(f"Scraping Billboard data for years {years}")
-            self.billboard_scraper.scrape_years(years, db)
-
-            # Re-query after scraping
-            existing_data = (
-                db.query(BillboardChart)
-                .filter(
-                    BillboardChart.chart_date.between(
-                        datetime(min(years), 1, 1), datetime(max(years), 12, 31)
-                    )
-                )
-                .all()
-            )
-
-        return existing_data
-
-    def _filter_by_taste_similarity(
-        self,
-        billboard_tracks: List[BillboardChart],
-        user_clusters: List[UserCluster],
-        existing_track_ids: set,
-    ) -> List[BillboardChart]:
-        """Filter Billboard tracks by similarity to user's taste clusters"""
-        if not user_clusters:
-            return billboard_tracks
-
-        # Calculate average user taste profile
-        user_profile = {}
-        total_tracks = sum(cluster.track_count for cluster in user_clusters)
-
-        for feature in self.data_analyzer.audio_features:
-            weighted_sum = sum(
-                cluster.centroid_data.get(feature, 0.5) * cluster.track_count
-                for cluster in user_clusters
-                if feature in cluster.centroid_data
-            )
-            user_profile[feature] = (
-                weighted_sum / total_tracks if total_tracks > 0 else 0.5
-            )
-
-        # Filter tracks with audio features similar to user profile
-        similar_tracks = []
-        for track in billboard_tracks:
-            if (
-                track.spotify_track_id
-                and track.spotify_track_id not in existing_track_ids
-                and self._is_similar_to_profile(track, user_profile)
-            ):
-                similar_tracks.append(track)
-
-        # Sort by similarity score
-        similar_tracks.sort(
-            key=lambda t: self._calculate_similarity_score(t, user_profile),
-            reverse=True,
-        )
-
-        return similar_tracks
-
-    def _is_similar_to_profile(
-        self, track: BillboardChart, user_profile: Dict[str, float]
-    ) -> bool:
-        """Check if a track is similar to user's taste profile"""
-        if not all(
-            getattr(track, feature) is not None
-            for feature in ["energy", "valence", "danceability"]
-        ):
-            return False
-
-        # Simple similarity check based on key features
-        energy_diff = abs(
-            getattr(track, "energy", 0.5) - user_profile.get("energy", 0.5)
-        )
-        valence_diff = abs(
-            getattr(track, "valence", 0.5) - user_profile.get("valence", 0.5)
-        )
-        dance_diff = abs(
-            getattr(track, "danceability", 0.5) - user_profile.get("danceability", 0.5)
-        )
-
-        # Track is similar if it's within reasonable bounds for key features
-        return energy_diff < 0.4 and valence_diff < 0.4 and dance_diff < 0.4
-
-    def _calculate_similarity_score(
-        self, track: BillboardChart, user_profile: Dict[str, float]
-    ) -> float:
-        """Calculate similarity score between track and user profile"""
-        score = 0.0
-        feature_count = 0
-
-        for feature in self.data_analyzer.audio_features:
-            track_value = getattr(track, feature, None)
-            profile_value = user_profile.get(feature)
-
-            if track_value is not None and profile_value is not None:
-                # Calculate inverse of absolute difference (higher score = more similar)
-                diff = abs(track_value - profile_value)
-                score += 1.0 - diff
-                feature_count += 1
-
-        return score / feature_count if feature_count > 0 else 0.0
-
-    def _enrich_with_spotify_data(
-        self, access_token: str, billboard_tracks: List[BillboardChart]
+    def _get_related_artists(
+        self, access_token: str, artist_id: str
     ) -> List[Dict[str, Any]]:
-        """Enrich Billboard tracks with Spotify data"""
-        recommendations = []
-
-        for track in billboard_tracks:
-            if not track.spotify_track_id:
-                # Try to find the track on Spotify
-                query = f"{track.track_name} {track.artist_name}"
-                search_results = self.spotify_client.search_tracks(
-                    access_token, query, limit=1
-                )
-
-                if search_results:
-                    spotify_track = search_results[0]
-                    track.spotify_track_id = spotify_track["id"]
-                else:
-                    continue
-
-            # Create recommendation object
-            rec = {
-                "spotify_id": track.spotify_track_id,
-                "name": track.track_name,
-                "artist_name": track.artist_name,
-                "album_name": None,  # Will be filled from Spotify if needed
-                "preview_url": None,
-                "external_url": f"https://open.spotify.com/track/{track.spotify_track_id}",
-                "image_url": None,
-                "source_cluster_id": None,
-                "confidence_score": 0.8,  # Base score for nostalgia tracks
-                "chart_position": track.position,
-                "chart_date": track.chart_date.isoformat(),
-            }
-            recommendations.append(rec)
-
-        return recommendations
-
-    def _calculate_confidence_score(
-        self, spotify_track: Dict[str, Any], target_features: Dict[str, float]
-    ) -> float:
-        """Calculate confidence score for a recommendation"""
-        # This is a simplified confidence calculation
-        # In a real implementation, you might use audio features similarity
-        popularity = spotify_track.get("popularity", 50)
-        return min(1.0, popularity / 100.0 + 0.3)
-
-    def _store_recommendations(
-        self,
-        user_id: int,
-        recommendations: List[Dict[str, Any]],
-        recommendation_type: str,
-        db: Session,
-    ):
-        """Store recommendations in the database"""
+        """Get related artists from Spotify"""
         try:
-            for rec in recommendations:
+            sp = self.spotify_client.get_spotify_client(access_token)
+            result = sp.artist_related_artists(artist_id)
+            return result.get("artists", [])
+        except Exception as e:
+            logger.error(f"Failed to get related artists: {e}")
+            return []
+
+    def _get_artist_top_tracks(
+        self, access_token: str, artist_id: str
+    ) -> List[Dict[str, Any]]:
+        """Get artist's top tracks"""
+        try:
+            sp = self.spotify_client.get_spotify_client(access_token)
+            result = sp.artist_top_tracks(artist_id, country="US")
+            return result.get("tracks", [])
+        except Exception as e:
+            logger.error(f"Failed to get artist top tracks: {e}")
+            return []
+
+    def _get_track_info(
+        self, access_token: str, track_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get track information from Spotify"""
+        try:
+            sp = self.spotify_client.get_spotify_client(access_token)
+            return sp.track(track_id)
+        except Exception as e:
+            logger.error(f"Failed to get track info: {e}")
+            return None
+
+    def _store_recommendation(
+        self, user_id: int, track: Dict[str, Any], rec_type: str, db: Session
+    ):
+        """Store recommendation in database"""
+        try:
+            # Check if recommendation already exists
+            existing = (
+                db.query(Recommendation)
+                .filter(
+                    Recommendation.user_id == user_id,
+                    Recommendation.spotify_track_id == track["id"],
+                )
+                .first()
+            )
+
+            if not existing:
                 recommendation = Recommendation(
                     user_id=user_id,
-                    spotify_track_id=rec["spotify_id"],
-                    track_name=rec["name"],
-                    artist_name=rec["artist_name"],
-                    album_name=rec.get("album_name"),
-                    preview_url=rec.get("preview_url"),
-                    external_url=rec.get("external_url"),
-                    image_url=rec.get("image_url"),
-                    recommendation_type=recommendation_type,
-                    source_cluster_id=rec.get("source_cluster_id"),
-                    confidence_score=rec.get("confidence_score", 0.5),
+                    spotify_track_id=track["id"],
+                    track_name=track["name"],
+                    artist_name=", ".join([a["name"] for a in track["artists"]]),
+                    album_name=track["album"]["name"],
+                    preview_url=track.get("preview_url"),
+                    external_url=track["external_urls"].get("spotify"),
+                    image_url=(
+                        track["album"]["images"][0]["url"]
+                        if track["album"]["images"]
+                        else None
+                    ),
+                    recommendation_type=rec_type,
+                    score=track.get("popularity", 50) / 100.0,
                 )
                 db.add(recommendation)
-
-            db.commit()
-            logger.info(
-                f"Stored {len(recommendations)} {recommendation_type} recommendations for user {user_id}"
-            )
+                db.commit()
 
         except Exception as e:
-            logger.error(f"Failed to store recommendations: {e}")
+            logger.error(f"Failed to store recommendation: {e}")
             db.rollback()

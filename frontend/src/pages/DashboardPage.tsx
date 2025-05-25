@@ -1,8 +1,11 @@
 import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { Card, CardHeader, StatCard, ActionCard } from '../components/Card'
+import AnalysisProgress from '../components/AnalysisProgress'
 import { useAuth } from '../contexts/AuthContext'
 import { useLibraryAnalysis } from '../hooks/useLibraryAnalysis'
+import { useAnalysisProgress } from '../hooks/useAnalysisProgress'
 import { 
   Music, 
   Sparkles, 
@@ -15,16 +18,23 @@ import {
 } from 'lucide-react'
 
 const DashboardPage: React.FC = () => {
-  const { user } = useAuth()
+  const { user, sessionId } = useAuth()
+  const navigate = useNavigate()
   const { status, isLoading, isAnalyzing, error, analyzeLibrary } = useLibraryAnalysis()
+  const { progress, startPolling } = useAnalysisProgress(sessionId)
   const [selectedTrackLimit, setSelectedTrackLimit] = useState(1000)
 
   const handleAnalyzeLibrary = async () => {
     const result = await analyzeLibrary(selectedTrackLimit)
     if (result) {
-      // Could show a toast notification here
+      // Start polling for progress updates
+      startPolling()
       console.log('Analysis started:', result)
     }
+  }
+
+  const handleGenerateRecommendations = () => {
+    navigate('/recommendations')
   }
 
   const getWelcomeMessage = () => {
@@ -46,9 +56,19 @@ const DashboardPage: React.FC = () => {
     return `${diffInDays} days ago`
   }
 
+  // Show progress overlay when analysis is running
+  const isAnalysisRunning = progress && ['starting', 'fetching_tracks', 'getting_features', 'clustering'].includes(progress.status)
+  const showProgress = Boolean(isAnalysisRunning)
+
   return (
     <Layout>
       <div className="p-6">
+        {/* Real-time Progress Overlay */}
+        <AnalysisProgress 
+          progress={progress} 
+          isVisible={showProgress} 
+        />
+
         {/* Welcome Section */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-spotify-white mb-2">
@@ -66,11 +86,18 @@ const DashboardPage: React.FC = () => {
           </div>
         )}
 
+        {/* Progress Error Display */}
+        {progress?.status === 'failed' && progress.error_message && (
+          <div className="mb-6 p-4 bg-red-900/20 border border-red-500/20 rounded-lg">
+            <p className="text-red-400">Analysis failed: {progress.error_message}</p>
+          </div>
+        )}
+
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <StatCard
             title="Tracks Analyzed"
-            value={status?.track_count || 0}
+            value={progress?.tracks_processed || status?.track_count || 0}
             subtitle={status?.library_analyzed ? 'Analysis complete' : 'Not analyzed yet'}
             icon={<Music className="h-6 w-6" />}
           />
@@ -103,18 +130,22 @@ const DashboardPage: React.FC = () => {
           <ActionCard
             title="Analyze Your Music Library"
             description={
-              status?.library_analyzed
-                ? `Your library has been analyzed! ${status.track_count} tracks organized into ${status.cluster_count} taste clusters.`
+              progress?.status === 'completed' || status?.library_analyzed
+                ? `Your library has been analyzed! ${progress?.tracks_processed || status?.track_count || 0} tracks organized into ${status?.cluster_count || 0} taste clusters.`
+                : isAnalysisRunning
+                ? `Analysis in progress: ${progress.current_step}`
                 : "Let AI analyze your Spotify library to understand your music taste and create personalized clusters."
             }
             buttonText={
-              status?.library_analyzed
+              isAnalysisRunning
+                ? "Analyzing..."
+                : status?.library_analyzed || progress?.status === 'completed'
                 ? "Re-analyze Library"
                 : "Start Analysis"
             }
             onAction={handleAnalyzeLibrary}
-            isLoading={isAnalyzing}
-            disabled={isLoading}
+            isLoading={Boolean(isAnalyzing || isAnalysisRunning)}
+            disabled={Boolean(isLoading || isAnalysisRunning)}
             icon={<Sparkles className="h-6 w-6" />}
           />
 
@@ -127,17 +158,14 @@ const DashboardPage: React.FC = () => {
                 : "Complete library analysis first to unlock personalized recommendations."
             }
             buttonText="Generate Recommendations"
-            onAction={() => {
-              // TODO: Implement recommendation generation
-              console.log('Generate recommendations')
-            }}
+            onAction={handleGenerateRecommendations}
             disabled={!status?.can_generate_recommendations || (status?.recommendations_today >= 4)}
             icon={<TrendingUp className="h-6 w-6" />}
           />
         </div>
 
         {/* Analysis Configuration */}
-        {!status?.library_analyzed && (
+        {!status?.library_analyzed && progress?.status !== 'completed' && (
           <Card className="mb-8">
             <CardHeader
               title="Analysis Settings"
@@ -167,6 +195,7 @@ const DashboardPage: React.FC = () => {
                   value={selectedTrackLimit}
                   onChange={(e) => setSelectedTrackLimit(Number(e.target.value))}
                   className="bg-spotify-black border border-spotify-gray/30 rounded-lg px-3 py-2 text-spotify-white focus:outline-none focus:border-spotify-green"
+                  disabled={Boolean(isAnalysisRunning)}
                 >
                   <option value={500}>500 tracks (Quick analysis)</option>
                   <option value={1000}>1,000 tracks (Recommended)</option>
@@ -188,14 +217,14 @@ const DashboardPage: React.FC = () => {
         )}
 
         {/* Quick Stats */}
-        {status?.library_analyzed && (
+        {(status?.library_analyzed || progress?.status === 'completed') && (
           <Card>
             <CardHeader
               title="Library Overview"
               subtitle="Your music taste at a glance"
               action={
                 <button
-                  onClick={() => window.location.href = '/analytics'}
+                  onClick={() => navigate('/analytics')}
                   className="text-spotify-green hover:text-spotify-green/80 text-sm font-medium"
                 >
                   View Analytics →
@@ -205,17 +234,17 @@ const DashboardPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="text-center p-4 bg-spotify-black/50 rounded-lg">
                 <Music className="h-8 w-8 text-spotify-green mx-auto mb-2" />
-                <p className="text-2xl font-bold text-spotify-white">{status.track_count}</p>
+                <p className="text-2xl font-bold text-spotify-white">{progress?.tracks_processed || status?.track_count || 0}</p>
                 <p className="text-sm text-spotify-gray">Tracks Analyzed</p>
               </div>
               <div className="text-center p-4 bg-spotify-black/50 rounded-lg">
                 <Users className="h-8 w-8 text-spotify-green mx-auto mb-2" />
-                <p className="text-2xl font-bold text-spotify-white">{status.cluster_count}</p>
+                <p className="text-2xl font-bold text-spotify-white">{status?.cluster_count || 0}</p>
                 <p className="text-sm text-spotify-gray">Taste Clusters</p>
               </div>
               <div className="text-center p-4 bg-spotify-black/50 rounded-lg">
                 <Heart className="h-8 w-8 text-spotify-green mx-auto mb-2" />
-                <p className="text-2xl font-bold text-spotify-white">{status.recommendation_count}</p>
+                <p className="text-2xl font-bold text-spotify-white">{status?.recommendation_count || 0}</p>
                 <p className="text-sm text-spotify-gray">Recommendations</p>
               </div>
             </div>

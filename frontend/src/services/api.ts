@@ -151,6 +151,24 @@ export const recommendationsApi = {
   },
 }
 
+// Progress API
+export const progressApi = {
+  getAnalysisProgress: async (sessionId: string): Promise<{
+    status: string
+    current_step: string
+    progress_percentage: number
+    tracks_processed: number
+    total_tracks: number
+    error_message?: string
+    started_at?: string
+    completed_at?: string
+    updated_at?: string
+  }> => {
+    const response = await api.get(`/api/progress/analysis/${sessionId}`)
+    return response.data
+  },
+}
+
 // Analytics API
 export const analyticsApi = {
   getOverview: async (sessionId: string): Promise<AnalyticsOverview> => {

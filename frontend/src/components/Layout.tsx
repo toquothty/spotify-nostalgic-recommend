@@ -1,6 +1,6 @@
 import React, { ReactNode } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { Music, BarChart3, User, LogOut, Menu, X } from 'lucide-react'
+import { Music, BarChart3, User, LogOut, Menu, X, Sparkles } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { useState } from 'react'
 
@@ -15,6 +15,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: Music },
+    { name: 'Recommendations', href: '/recommendations', icon: Sparkles },
     { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   ]
 
