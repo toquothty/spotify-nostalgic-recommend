@@ -94,8 +94,8 @@ async def auth_callback(
         db.add(user_session)
         db.commit()
 
-        # Redirect to frontend with session
-        frontend_url = f"http://127.0.0.1:3000/dashboard?session={session_id}"
+        # Redirect to frontend callback with session
+        frontend_url = f"http://127.0.0.1:3000/callback?session={session_id}"
         return RedirectResponse(url=frontend_url)
 
     except Exception as e:
